@@ -2,7 +2,7 @@
   "apiVersion": 1,
   "id": "token-idle",
   "name": "Token Foundry",
-  "version": "1.4.4",
+  "version": "1.4.8",
   "description": "Idle foundry whose currency is your workspace tokens, with a balance rail, a side panel of upgrades, and a smith that bounces along the bottom.",
   "tools": [
     {

@@ -464,8 +464,16 @@ const CSS = `
 `;
 
 const HINT_UNTIL = 50_000;
-const SPAWN_MIN_MS = 10 * 60_000;
-const SPAWN_MAX_MS = 20 * 60_000;
+const SPAWN_MIN_MS = 4 * 60_000;
+const SPAWN_MAX_MS = 10 * 60_000;
+const SPAWN_FIRST_MIN_MS = 12_000;
+const SPAWN_FIRST_SPAN_MS = 18_000;
+export const SPRITE_CHIME = [
+  { hz: 784, at: 0, dur: 0.11 },
+  { hz: 1047, at: 0.09, dur: 0.12 },
+  { hz: 1319, at: 0.18, dur: 0.2 },
+  { hz: 2093, at: 0.26, dur: 0.09 },
+];
 const SPAWN_LIFETIME_MS = 14_000;
 const TOAST_MS = 3_500;
 const CHAOS_STEP_MS = 200;
@@ -625,6 +633,8 @@ const WALKER_MAX_SPEED = 1600;
 const WALKER_RESTITUTION = 0.42;
 const WALKER_AIR_DRAG = 0.01;
 const WALKER_GROUND_DRAG = 2;
+const WALKER_FLING_DRAG = 0.22;
+const WALKER_FLING = WALKER_CRUISE * 2.2;
 const RAVE_MIN_SPEED = 280;
 
 export const SAYINGS = [
@@ -705,9 +715,10 @@ export function stepWalker(body, bounds, dt, held, options = {}) {
     if (y >= bounds.maxY) return pack({ y: bounds.maxY, vx: 0, vy: 0 });
     return pack();
   }
-  vx = relaxAbove(vx, WALKER_CRUISE, onFloor ? WALKER_GROUND_DRAG : WALKER_AIR_DRAG, step, heading);
+  const flung = Math.hypot(vx, vy) > WALKER_FLING;
+  const drag = onFloor ? (flung ? WALKER_FLING_DRAG : WALKER_GROUND_DRAG) : WALKER_AIR_DRAG;
+  vx = relaxAbove(vx, WALKER_CRUISE, drag, step, heading);
   if (!onFloor) vy *= Math.exp(-WALKER_AIR_DRAG * step);
-  const flung = Math.hypot(vx, vy) > WALKER_CRUISE * 3.5;
   if (onFloor && !flung && age >= decideAt) {
     if (rng() < 0.34) heading = -heading;
     const kind = rng();
@@ -755,12 +766,12 @@ export function stepWalker(body, bounds, dt, held, options = {}) {
   y += vy * step;
   if (x <= bounds.minX) {
     x = bounds.minX;
-    vx = Math.max(WALKER_CRUISE, Math.abs(vx) * 0.45);
+    vx = Math.max(WALKER_CRUISE, Math.abs(vx) * 0.78);
     heading = 1;
     targetVx = WALKER_CRUISE;
   } else if (x >= bounds.maxX) {
     x = bounds.maxX;
-    vx = -Math.max(WALKER_CRUISE, Math.abs(vx) * 0.45);
+    vx = -Math.max(WALKER_CRUISE, Math.abs(vx) * 0.78);
     heading = -1;
     targetVx = -WALKER_CRUISE;
   }
@@ -907,6 +918,7 @@ export default function activate(ctx) {
   let walkerGrabX = 0;
   let walkerGrabY = 0;
   let walkerSample = null;
+  let walkerTrail = [];
   let suppressWalkerClick = false;
   let walkerFrame = 0;
   let walkerLast = 0;
@@ -996,6 +1008,24 @@ export default function activate(ctx) {
   let cards = [];
   let spawnEl = null;
   let spawnTimer = null;
+  let chimeCtx = null;
+  function unlockChime() {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return null;
+      if (!chimeCtx) chimeCtx = new AudioCtx();
+      if (chimeCtx.state === 'suspended') chimeCtx.resume();
+      return chimeCtx;
+    } catch {
+      return null;
+    }
+  }
+  document.addEventListener('pointerdown', unlockChime, { capture: true });
+  ctx.onCleanup(() => {
+    document.removeEventListener('pointerdown', unlockChime, { capture: true });
+    chimeCtx?.close();
+    chimeCtx = null;
+  });
   let toastEl = null;
   let tab = 'build';
   let boughtId = null;
@@ -1007,7 +1037,8 @@ export default function activate(ctx) {
   const insetTargets = new Map();
   const SETTINGS = [
     ['rave', 'magic-wand', 'Rave', 'Click him to step aside, and click him again to come back. Every 20 seconds there is also a 10% chance he steps aside on his own.'],
-    ['sprites', 'flame', 'Power-up sprites', 'Golden sprites can appear on screen. Token rain comes from those sprites.'],
+    ['sprites', 'flame', 'Power-up sprites', 'A golden sprite leaves the smith every 4 to 10 minutes and stays for 14 seconds. The first one arrives within half a minute of opening Minnow.'],
+    ['spriteSound', 'volume', 'Sprite chime', 'Play a short rising chime when a golden sprite appears. It is the foundry\u2019s own sound, not a Minnow notification.'],
     ['chaosColors', 'shuffle', 'Theme changes', 'Rave and Token Chaos can recolour Minnow.'],
   ];
   function loadPrefs() {
@@ -1016,10 +1047,11 @@ export default function activate(ctx) {
       return {
         rave: saved.rave !== false,
         sprites: saved.sprites !== false,
+        spriteSound: saved.spriteSound !== false,
         chaosColors: saved.chaosColors !== false,
       };
     } catch {
-      return { rave: true, sprites: true, chaosColors: true };
+      return { rave: true, sprites: true, spriteSound: true, chaosColors: true };
     }
   }
   let prefs = loadPrefs();
@@ -1552,16 +1584,49 @@ export default function activate(ctx) {
     });
     el.expireTimer = setTimeout(despawn, SPAWN_LIFETIME_MS);
     spawnEl = el;
+    playSpriteCue();
   }
 
-  function scheduleSpawn() {
+  function playSpriteCue() {
+    if (!prefs.spriteSound) return;
+    const audio = unlockChime();
+    if (!audio || audio.state === 'suspended') return;
+    const start = audio.currentTime + 0.02;
+    const master = audio.createGain();
+    master.gain.value = 0.2;
+    master.connect(audio.destination);
+    for (const note of SPRITE_CHIME) {
+      const osc = audio.createOscillator();
+      const gain = audio.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = note.hz;
+      const at = start + note.at;
+      gain.gain.setValueAtTime(0.0001, at);
+      gain.gain.exponentialRampToValueAtTime(0.85, at + 0.018);
+      gain.gain.exponentialRampToValueAtTime(0.0001, at + note.dur);
+      osc.connect(gain);
+      gain.connect(master);
+      osc.start(at);
+      osc.stop(at + note.dur + 0.02);
+    }
+  }
+
+  function scheduleSpawn(options = {}) {
     clearTimeout(spawnTimer);
     spawnTimer = null;
     if (!prefs.sprites) return;
     const speed = 1 + (state?.perks?.spawnRate ?? 0);
-    const delay = (SPAWN_MIN_MS + Math.random() * (SPAWN_MAX_MS - SPAWN_MIN_MS)) / speed;
+    const delay = options.soon
+      ? 15_000
+      : options.first
+        ? SPAWN_FIRST_MIN_MS + Math.random() * SPAWN_FIRST_SPAN_MS
+        : (SPAWN_MIN_MS + Math.random() * (SPAWN_MAX_MS - SPAWN_MIN_MS)) / speed;
     spawnTimer = setTimeout(() => {
-      if (!document.hidden && !spawnEl) spawn(pickPowerup());
+      if (document.hidden) {
+        scheduleSpawn({ soon: true });
+        return;
+      }
+      if (!spawnEl) spawn(pickPowerup());
       scheduleSpawn();
     }, delay);
   }
@@ -1608,7 +1673,7 @@ export default function activate(ctx) {
     snapshot = { balance: next.balance, baseRate: next.baseRatePerSecond ?? next.ratePerSecond, buffs: next.buffs ?? [], at: Date.now() };
     if (hadState && next.usageAdded > 0) celebrate(next.usageAdded);
     if (!hadState && next.gainedFromUsage > 0) lastChatAt = Date.now();
-    if (!hadState) scheduleSpawn();
+    if (!hadState) scheduleSpawn({ first: true });
     buildPanel();
     paintLive();
   }
@@ -1863,6 +1928,7 @@ export default function activate(ctx) {
     walker.classList.add('is-held');
     walkerGrabX = event.clientX - walkerBody.x;
     walkerGrabY = event.clientY - walkerBody.y;
+    walkerTrail = [];
     walkerSample = { x: event.clientX, y: event.clientY, ox: event.clientX, oy: event.clientY, t: performance.now(), moved: false };
   });
   walker.addEventListener('pointermove', (event) => {
@@ -1871,12 +1937,16 @@ export default function activate(ctx) {
     const box = laneBox();
     const now = performance.now();
     const dt = Math.max(16, now - walkerSample.t);
+    const vx = ((event.clientX - walkerSample.x) / dt) * 1000;
+    const vy = ((event.clientY - walkerSample.y) / dt) * 1000;
     walkerBody = {
       x: clampWalker(event.clientX - walkerGrabX, box.minX, box.maxX),
       y: clampWalker(event.clientY - walkerGrabY, box.minY, box.maxY),
-      vx: ((event.clientX - walkerSample.x) / dt) * 1000,
-      vy: ((event.clientY - walkerSample.y) / dt) * 1000,
+      vx,
+      vy,
     };
+    walkerTrail.push({ vx, vy, t: now });
+    walkerTrail = walkerTrail.filter((sample) => now - sample.t < 140);
     walkerSample = { x: event.clientX, y: event.clientY, ox: walkerSample.ox, oy: walkerSample.oy, t: now, moved: walkerSample.moved };
     placeWalker();
   });
@@ -1886,7 +1956,11 @@ export default function activate(ctx) {
     walkerHeld = false;
     walker.classList.remove('is-held');
     const moved = Boolean(walkerSample?.moved);
+    const launch = walkerTrail.reduce((best, sample) => (
+      Math.hypot(sample.vx, sample.vy) > Math.hypot(best.vx, best.vy) ? sample : best
+    ), { vx: walkerBody.vx, vy: walkerBody.vy });
     walkerSample = null;
+    walkerTrail = [];
     if (!moved) {
       if (!raveOn && sprite.dataset.mood !== 'sleep') {
         walkerBody.vx = walkerBody.vx < 0 ? -WALKER_CRUISE : WALKER_CRUISE;
@@ -1901,8 +1975,8 @@ export default function activate(ctx) {
       return;
     }
     if (event.type !== 'pointercancel') suppressWalkerClick = true;
-    walkerBody.vx = clampWalker(walkerBody.vx, -WALKER_MAX_SPEED, WALKER_MAX_SPEED);
-    walkerBody.vy = clampWalker(walkerBody.vy, -WALKER_MAX_SPEED, WALKER_MAX_SPEED);
+    walkerBody.vx = clampWalker(launch.vx * 1.35, -WALKER_MAX_SPEED, WALKER_MAX_SPEED);
+    walkerBody.vy = clampWalker(launch.vy * 1.35, -WALKER_MAX_SPEED, WALKER_MAX_SPEED);
   }
   walker.addEventListener('pointerup', releaseWalker);
   walker.addEventListener('pointercancel', releaseWalker);

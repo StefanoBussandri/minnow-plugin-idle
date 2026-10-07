@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { eatCorpses, easeStretch, EMOTES, SAYINGS, stepCorpse, stepRave, stepWalker, WALKER_CRUISE, walkerBounds, walkerStretch } from '../plugins/token-idle/ui.mjs';
+import { eatCorpses, easeStretch, EMOTES, SAYINGS, SPRITE_CHIME, stepCorpse, stepRave, stepWalker, WALKER_CRUISE, walkerBounds, walkerStretch } from '../plugins/token-idle/ui.mjs';
 
 const lane = { minX: 80, maxX: 400, minY: 50, maxY: 500 };
 
@@ -53,10 +53,13 @@ test('a fling cannot leave the lane or run away on a bad timestep', () => {
   assert.equal(stalled.vy, 0);
 });
 
-test('a throw slows down instead of keeping its speed', () => {
-  let body = { x: 200, y: lane.maxY, vx: 1200, vy: 0, decideAt: 999, targetVx: 0 };
-  for (let i = 0; i < 40; i += 1) body = stepWalker(body, lane, 0.05, false);
-  assert.ok(Math.abs(body.vx) < 80, `still fast: ${body.vx}`);
+test('a throw coasts along the floor before it settles into a walk', () => {
+  const rink = { minX: -20000, maxX: 20000, minY: 0, maxY: 500 };
+  let body = { x: 200, y: rink.maxY, vx: 1200, vy: 0, decideAt: 999, targetVx: 0, gait: 'walk' };
+  for (let i = 0; i < 40; i += 1) body = stepWalker(body, rink, 0.05, false);
+  assert.ok(Math.abs(body.vx) > 600, `died on release: ${body.vx}`);
+  for (let i = 0; i < 220; i += 1) body = stepWalker(body, rink, 0.05, false);
+  assert.ok(Math.abs(body.vx) < 140, `never settled: ${body.vx}`);
   assert.ok(Math.abs(body.vx) >= WALKER_CRUISE - 0.01, `below the usual pace: ${body.vx}`);
 });
 
@@ -168,4 +171,13 @@ test('he returns to a circle slower than he stretches', () => {
   assert.ok(Math.abs(1.4 - back) < Math.abs(out - 1));
   assert.ok(back > 1 && back < 1.31);
   assert.ok(out > 1 && out < 1.4);
+});
+
+test('the sprite chime is a short rising tune', () => {
+  assert.equal(SPRITE_CHIME.length, 4);
+  assert.ok(SPRITE_CHIME[0].hz < SPRITE_CHIME[1].hz && SPRITE_CHIME[1].hz < SPRITE_CHIME[2].hz);
+  assert.ok(SPRITE_CHIME[3].hz > SPRITE_CHIME[2].hz);
+  const end = Math.max(...SPRITE_CHIME.map((note) => note.at + note.dur));
+  assert.ok(end < 0.5, end);
+  assert.ok(SPRITE_CHIME.every((note) => note.hz >= 700 && note.hz <= 2200 && note.dur <= 0.22));
 });
