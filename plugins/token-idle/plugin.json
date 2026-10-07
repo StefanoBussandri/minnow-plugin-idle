@@ -1,0 +1,93 @@
+{
+  "apiVersion": 1,
+  "id": "token-idle",
+  "name": "Token Foundry",
+  "version": "1.4.4",
+  "description": "Idle foundry whose currency is your workspace tokens, with a balance rail, a side panel of upgrades, and a smith that bounces along the bottom.",
+  "tools": [
+    {
+      "id": "get_state",
+      "description": "Return the Token Foundry wallet, income rate, and upgrades for this workspace without advancing time.",
+      "handler": "get-state.mjs",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "tick",
+      "description": "Apply offline idle income and sync the wallet to the workspace token ledger.",
+      "handler": "tick.mjs",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "observed_tokens": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Current cumulative workspace totalTokens. Omit to accrue idle income only."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "buy",
+      "description": "Buy levels of a Token Foundry upgrade with tokens on hand.",
+      "handler": "buy.mjs",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "upgrade_id": {
+            "type": "string",
+            "description": "Upgrade id from get_state, such as inkwell or press."
+          },
+          "count": {
+            "description": "How many levels to buy: a positive integer (default 1) or \"max\" for as many as affordable.",
+            "oneOf": [{ "type": "integer", "minimum": 1 }, { "type": "string", "enum": ["max"] }]
+          }
+        },
+        "required": ["upgrade_id"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "claim_powerup",
+      "description": "Claim a Token Foundry power-up, such as the one the foundry sprite drops when clicked.",
+      "handler": "claim-powerup.mjs",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "powerup_id": {
+            "type": "string",
+            "description": "Power-up id from get_state, such as overclock or surge."
+          }
+        },
+        "required": ["powerup_id"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "mint",
+      "description": "Mint tokens once by hand.",
+      "handler": "mint.mjs",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "prestige",
+      "description": "Retrain the foundry: reset balance, generators, and perks for permanent insight (+5% income each).",
+      "handler": "prestige.mjs",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    }
+  ],
+  "ui": { "entry": "ui.mjs" },
+  "connections": []
+}

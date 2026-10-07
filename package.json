@@ -1,0 +1,12 @@
+{
+  "name": "minnow-plugin-idle",
+  "private": true,
+  "description": "Token Foundry, a Minnow plugin whose currency is workspace tokens.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test --test-force-exit tests/token-idle.test.mjs tests/walker.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
